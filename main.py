@@ -7,34 +7,36 @@ app = FastAPI()
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-class ChatRequest(BaseModel):
-    user_id: str
-    message: str
-
-# временно: история в памяти (можно позже перенести в Supabase/Redis)
+# Временное хранилище истории (на потом — Supabase или Redis)
 user_histories = {}
 
 @app.post("/chat")
-async def chat(req: ChatRequest):
-    history = user_histories.get(req.user_id, [])
-    
-    # Добавляем новое сообщение
-    history.append({"role": "user", "content": req.message})
-    
-    # Строим полный prompt
-    messages = [{"role": "system", "content": "Ты ассистент по путешествиям. Помогай планировать маршруты."}] + history
+async def chat(request: Request):
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        message = data.get("message")
 
-    # Запрос в OpenAI
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages,
-        temperature=0.8
-    )
-    
-    assistant_message = response.choices[0].message.content
-    history.append({"role": "assistant", "content": assistant_message})
-    
-    # Сохраняем обновлённую историю
-    user_histories[req.user_id] = history[-10:]  # ограничим историю 10 сообщениями
+        if not user_id or not message:
+            return {"reply": "Ошибка: не передан user_id или message"}
 
-    return {"reply": assistant_message}
+        history = user_histories.get(user_id, [])
+        history.append({"role": "user", "content": message})
+
+        messages = [
+            {"role": "system", "content": "Ты ассистент по путешествиям. Помогай планировать маршруты."}
+        ] + history
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.8
+        )
+
+        assistant_message = response.choices[0].message.content
+        history.append({"role": "assistant", "content": assistant_message})
+        user_histories[user_id] = history[-10:]
+
+        return {"reply": assistant_message}
+    except Exception as e:
+        return {"reply": f"Ошибка сервера: {str(e)}"}
